@@ -1,0 +1,82 @@
+name: build-undroidwish-x86
+
+# Builds the batteries-included `ebuild` undroidwish NATIVELY on an Intel
+# (x86_64) macOS runner. Native build => config.guess is genuinely x86_64 and
+# every sub-build's compiler/host detection is correct, which is exactly what
+# can't be achieved by cross-compiling on Apple Silicon. The `ebuild` action
+# embeds the Tcl/Tk VFS as a __TEXT,__zipfs Mach-O section so the binary can be
+# codesigned --strict and notarized (the appended-zip `build` variant cannot).
+#
+# Output artifact: undroidwish-x86_64  (lipo with the arm64 ebuild -> universal)
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-13          # Intel / x86_64 runner
+    timeout-minutes: 300
+    steps:
+      - name: Checkout this repo (patch + workflow)
+        uses: actions/checkout@v4
+
+      - name: Show toolchain (must be native x86_64)
+        run: |
+          uname -m
+          cc -dumpmachine
+          sw_vers
+          xcodebuild -version || true
+
+      - name: Install build deps
+        run: brew install autoconf automake libtool pkg-config
+
+      - name: Clone AndroWish @ pinned upstream commit
+        run: |
+          git clone https://github.com/charwliu/androwish.git aw
+          cd aw
+          git checkout f73cb8be3d25756607ed27154cdaffef37869cc0
+
+      - name: Apply macOS patch
+        run: |
+          cd aw
+          git apply --whitespace=nowarn ../patches/macos.patch
+          echo "patch applied:"
+          git diff --stat | tail -5
+
+      - name: Build ebuild undroidwish (native x86_64)
+        run: |
+          set -e
+          mkdir -p build
+          cd build
+          # The script refuses to run inside the AndroWish source tree, so we
+          # run it from this separate build dir. init populates it; ebuild
+          # compiles + embeds the __zipfs VFS.
+          bash ../aw/undroid/build-undroidwish-macosx.sh init
+          bash ../aw/undroid/build-undroidwish-macosx.sh ebuild
+
+      - name: Verify arch + __zipfs (must be x86_64 + present)
+        run: |
+          BIN=build/undroidwish
+          test -x "$BIN" || { echo "no undroidwish produced"; exit 1; }
+          file "$BIN"
+          echo "archs: $(lipo -archs "$BIN")"
+          lipo -archs "$BIN" | grep -qx x86_64 || { echo "NOT x86_64!"; exit 1; }
+          otool -l "$BIN" | grep -q __zipfs || { echo "NO __zipfs section (not notarizable)!"; exit 1; }
+          echo "OK: native x86_64 with __zipfs"
+
+      - name: Upload undroidwish artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: undroidwish-x86_64
+          path: build/undroidwish
+          if-no-files-found: error
+
+      - name: Upload build log (always, for debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build/build.log
+          if-no-files-found: ignore
