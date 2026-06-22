@@ -19,6 +19,11 @@ jobs:
                                # Dec 2025; macos-15-intel is GitHub's last native
                                # x86_64 image (available until Aug 2027).
     timeout-minutes: 300
+    env:
+      # The runner ships CMake 4.x, which errors on the ancient
+      # cmake_minimum_required() in bundled components (libwebsockets, etc.).
+      # This re-enables the pre-3.5 policy compat without editing their CMake.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - name: Checkout this repo (patch + workflow)
         uses: actions/checkout@v4
