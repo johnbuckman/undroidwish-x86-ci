@@ -62,6 +62,17 @@ jobs:
           # run it from this separate build dir. init populates it; ebuild
           # compiles + embeds the __zipfs VFS.
           bash ../aw/undroid/build-undroidwish-macosx.sh init
+          # Skip battery components that need external system libs/apps NOT present
+          # on a clean runner (dbus, libusb, VLC, macFUSE, Java, R, ImageMagick,
+          # augeas, taglib, librdkafka). de1app/undroidwish core doesn't use these;
+          # the arm64 build only included them because that Mac had the libs. Same
+          # build-stamp skip mechanism the arm64 build used. Add libs + drop a name
+          # here later if any of these are ever wanted on x86.
+          for c in dbus-tcl dbus-intf tcl-augeas tcluvc tkvlc tcl-fuse \
+                   tclJBlend Rtcl TclMagick kafkatcl tcltaglib; do
+            mkdir -p "$c" && touch "$c/build-stamp"
+          done
+          echo "skipped (no external lib on runner): dbus, augeas, uvc, vlc, fuse, jblend, R, magick, kafka, taglib"
           bash ../aw/undroid/build-undroidwish-macosx.sh ebuild
 
       - name: Verify arch + __zipfs (must be x86_64 + present)
